@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Box Clicker</title>
+<style>
+body { font-family: Arial; text-align:center; background: linear-gradient(120deg, #f6d365, #fda085); margin:0; }
+.container { background:white; padding:20px; border-radius:10px; display:inline-block; margin-top:50px; }
+input { padding:10px; margin:5px; width:200px; }
+button { padding:10px 20px; margin:5px; }
+.hidden { display:none; }
+#usernameDisplay { position: fixed; top:10px; left:10px; background: rgba(255,255,255,0.7); padding:5px 10px; border-radius:5px; font-weight:bold; }
+#clickBox { width:150px; height:150px; background:#ff6f61; margin:20px auto; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:24px; color:white; cursor:pointer; user-select:none; box-shadow:2px 2px 10px #000; transition: transform 0.1s; }
+#clickBox:active { transform: scale(0.95); }
+#upgrades, #achievements { margin:20px auto; max-width:500px; text-align:left; }
+.upgrade, .achievement { display:flex; justify-content:space-between; background: rgba(255,255,255,0.8); padding:10px; margin:5px 0; border-radius:5px; }
+#adminPanel, #codeScreen { background: rgba(255,255,255,0.9); padding:15px; margin:20px auto; max-width:450px; border-radius:10px; }
+#achievementPopup { position: fixed; top: 50px; left: 50%; transform: translateX(-50%); padding: 15px 30px; font-weight:bold; color:#000; display:none; border-radius:8px; box-shadow: 2px 2px 10px #000; z-index:999; }
+</style>
+<link rel="icon" href="boxicon.ico" type="image/png">
+</head>
+<body>
+
+<!-- LOGIN/REGISTER SCREEN -->
+<div id="authScreen" class="container">
+  <h2>Sign In / Register</h2>
+  <input type="text" id="username" placeholder="Username"><br>
+  <input type="password" id="password" placeholder="Password"><br>
+  <button onclick="register()">Register</button>
+  <button onclick="signIn()">Sign In</button>
+</div>
+
+<!-- BOX CLICKER GAME -->
+<div id="gameScreen" class="hidden">
+    <div id="usernameDisplay"></div>
+    <h2>Points: <span id="points">0</span> (<span id="totalPoints">0</span> raw)</h2>
+    <h3>PPC: <span id="ppcDisplay">1</span></h3>
+    <h3>Total Donations: <span id="donationDisplay">0</span></h3>
+
+    <div id="clickBox">Click!</div>
+
+    <h3>Upgrades</h3>
+    <input type="number" id="buyAmount" min="1" value="1" style="width:60px;">
+    <div id="upgrades"></div>
+
+    <div id="achievements"></div>
+    <div id="achievementPopup"></div>
+
+    <div id="adminPanel" class="hidden">
+        <h3>Admin Panel</h3>
+        <div>Set points: <input type="number" id="adminPointsInput" min="0"><button onclick="setPoints()">Set</button></div>
+        <div>Give upgrade: <select id="adminUpgradeSelect"></select> Quantity: <input type="number" id="adminUpgradeAmount" value="1" style="width:50px;"><button onclick="giveUpgrade()">Give</button></div>
+        <div>Reset points: <button onclick="resetPoints()">Reset</button></div>
+        <div>Reset all upgrades: <button onclick="resetUpgrades()">Reset Upgrades</button></div>
+        <div>Max all upgrades: <button onclick="maxAllUpgrades()">Max Upgrades</button></div>
+        <div>Toggle Auto-Clicker: <button id="autoClickBtn" onclick="toggleAutoClick()">OFF</button></div>
+        <div>Set points per click: <input type="number" id="pointsPerClickInput" min="1"><button onclick="setPPC()">Set</button></div>
+        <div>Instant Prestige: <button onclick="prestige()">Prestige</button></div>
+    </div>
+
+    <div id="codeScreen">
+        <h3>Enter Secret Code (Once per code)</h3>
+        <input type="text" id="secretCodeInput" placeholder="Enter code">
+        <button onclick="useCode()">Redeem</button>
+        <p id="codeMessage"></p>
+    </div>
+
+    <button onclick="logout()">Logout</button>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    let username = '';
+    let points = 0;
+    let totalPoints = 0;
+    let pointsPerClick = 1;
+    let totalDonations = 0;
+    let autoClicker = false;
+    let autoClickInterval;
+    let usedCodes = {};
+    let unlockedAchievements = [];
+
+    const secretCodes = {
+        'm0n3y': 91, 
+        'megacash': 500, 
+        '2025': 2025,
+        'eaktek': 67, 
+        'eaglercraft': 42, 
+        'eagler': 69,
+        'two123123123': -2000000000, 
+        'two12save': 2000000000,
+        'MrIrishMan': 239,
+        '0bt@1n@bl3': -50, 
+        'IOIOIOI': 1010101
+    };
+
+    const rarityColors = {
+        'Common': '#b0b0b0', 
+        'Rare': '#4a90e2',
+        'Epic': '#9b59b6', 
+        'Legendary': '#f1c40f',
+        'Mythic': '#9527F5'
+    };
+
+    const upgrades = [
+        { name: 'Donation!', type: 'click', cost: 1, effect: 0, owned: 0, max: 50 },
+        { name: 'Micro Boost', type: 'click', cost: 1, effect: 1, owned: 0, max: 50 },
+        { name: 'Tiny Boost', type: 'click', cost: 10, effect: 2, owned: 0, max: 50 },
+        { name: 'Small Boost', type: 'click', cost: 50, effect: 5, owned: 0, max: 50 },
+        { name: 'Medium Boost', type: 'click', cost: 200, effect: 20, owned: 0, max: 50 },
+        { name: 'Mega Boost', type: 'click', cost: 1000, effect: 100, owned: 0, max: 50 },
+        { name: 'Ultra Boost', type: 'click', cost: 5000, effect: 500, owned: 0, max: 50 },
+        { name: 'Auto Clicker I', type: 'auto', cost: 3000, effect: 1, owned: 0, max: 50 },
+        { name: 'Auto Clicker II', type: 'auto', cost: 15000, effect: 5, owned: 0, max: 50 },
+        { name: 'Auto Clicker III', type: 'auto', cost: 20000, effect: 10, owned: 0, max: 50 },
+        { name: 'Multiplier I', type: 'mult', cost: 2000, effect: 2, owned: 0, max: 10 },
+        { name: 'Multiplier II', type: 'mult', cost: 10000, effect: 5, owned: 0, max: 10 },
+        { name: 'Multiplier III', type: 'mult', cost: 25000, effect: 10, owned: 0, max: 10 },
+        { name: 'Lucky Charm', type: 'chance', cost: 5000, effect: 2, owned: 0, max: 20 },
+        { name: 'MOAR CLICKS', type: 'click', cost: 50000, effect: 1000, owned: 0, max: 10 },
+        { name: 'Legendary Boost', type: 'click', cost: 100000, effect: 10000, owned: 0, max: 10 }
+    ];
+
+    const achievements = [
+    { name: 'First Click!', rarity: 'Common', desc: 'Earn your first point.', condition: ()=>points>=1, bonus: ()=>{ points+=10; } },
+    { name: 'Getting Rich!', rarity: 'Rare', desc: 'Reach 1,000 points.', condition: ()=>points>=1000, bonus: ()=>{ pointsPerClick+=5; } },
+    { name: 'Millionaire!', rarity: 'Epic', desc: 'Reach 1,000,000 points (Hint: 2025 might help...)', condition: ()=>points>=1000000, bonus: ()=>{ pointsPerClick*=2; } },
+    { name: 'Upgrader', rarity: 'Common', desc: 'Buy your first upgrade.', condition: ()=>upgrades.some(u=>u.owned>0), bonus: ()=>{ points+=100; } },
+    { name: 'Boosted', rarity: 'Rare', desc: 'Reach 100 points per click.', condition: ()=>pointsPerClick>=100, bonus: ()=>{ points+=500; } },
+    { name: 'Codebreaker', rarity: 'Epic', desc: 'Redeem a secret code (hint: Try "eagler")', condition: ()=>Object.keys(usedCodes).length>=1, bonus: ()=>{ pointsPerClick*=1.5; } },
+    { name: 'Hidden Master', rarity: 'Legendary', desc: '??? (hint: there is a code with "two")', condition: ()=>usedCodes['two12save']||usedCodes['two123123123'], bonus: ()=>{ points+=5000; pointsPerClick*=3; } },
+    { name: 'Unobtainable', rarity: 'Mythic', desc: 'How do you even get this?', condition: ()=>usedCodes['0bt@1n@bl3'], bonus: ()=>{ points+=0; pointsPerClick*=0; } }
+];
+
+
+    // Elements
+    const authScreen = document.getElementById('authScreen');
+    const gameScreen = document.getElementById('gameScreen');
+    const usernameDisplay = document.getElementById('usernameDisplay');
+    const pointsDisplay = document.getElementById('points');
+    const totalPointsDisplay = document.getElementById('totalPoints');
+    const ppcDisplay = document.getElementById('ppcDisplay');
+    const donationDisplay = document.getElementById('donationDisplay');
+    const clickBox = document.getElementById('clickBox');
+    const upgradesDiv = document.getElementById('upgrades');
+    const achievementsDiv = document.getElementById('achievements');
+    const popup = document.getElementById('achievementPopup');
+    const adminPanel = document.getElementById('adminPanel');
+    const adminSelect = document.getElementById('adminUpgradeSelect');
+
+    function saveUserData() {
+        const data = { points, totalPoints, pointsPerClick, totalDonations, upgrades, usedCodes, unlockedAchievements };
+        localStorage.setItem('user_' + username, JSON.stringify(data));
+    }
+
+    function loadUserData() {
+        const data = JSON.parse(localStorage.getItem('user_' + username) || '{}');
+        if(data.points) points = data.points;
+        if(data.totalPoints) totalPoints = data.totalPoints;
+        if(data.pointsPerClick) pointsPerClick = data.pointsPerClick;
+        if(data.totalDonations) totalDonations = data.totalDonations;
+        if(data.upgrades) upgrades.forEach((u,i)=>u.owned=data.upgrades[i].owned);
+        if(data.usedCodes) usedCodes = data.usedCodes;
+        if(data.unlockedAchievements) unlockedAchievements = data.unlockedAchievements;
+    }
+
+    // Format large numbers
+    function formatNumber(num) {
+        if (num < 1000) return num.toString();
+        const units = ['K','M','B','T','Qa','Qi','Sx','Sp','Oc','No','Dc'];
+        let unitIndex = -1;
+        let scaled = num;
+        while(scaled >= 1000 && unitIndex < units.length - 1){ scaled /= 1000; unitIndex++; }
+        let str = (Math.floor(scaled*10)/10).toFixed(1);
+        if(str.endsWith('.0')) str = str.slice(0,-2);
+        return str + units[unitIndex];
+    }
+
+    function updatePoints() {
+        pointsDisplay.innerText = formatNumber(points);
+        totalPointsDisplay.innerText = formatNumber(totalPoints);
+        ppcDisplay.innerText = formatNumber(pointsPerClick);
+        donationDisplay.innerText = formatNumber(totalDonations);
+    }
+
+    function checkAchievements() {
+        achievements.forEach(a => {
+            if(!unlockedAchievements.includes(a.name) && a.condition()){
+                unlockedAchievements.push(a.name);
+                a.bonus();
+                showAchievementPopup(a.name,a.rarity);
+                renderAchievements();
+                saveUserData();
+            }
+        });
+    }
+
+    function renderAchievements() {
+        achievementsDiv.innerHTML='';
+        achievements.forEach(a=>{
+            const div = document.createElement('div');
+            div.className='achievement';
+            const color = rarityColors[a.rarity] || 'white';
+            div.innerHTML=`<span style="color:${color}">${a.name} <small>(${a.rarity})</small></span>
+                           <span>${unlockedAchievements.includes(a.name)?'✅':'❌'}</span>`;
+            achievementsDiv.appendChild(div);
+        });
+    }
+
+    function showAchievementPopup(name,rarity){
+        const color = rarityColors[rarity] || '#fff';
+        popup.style.background = color;
+        popup.innerText = `🏆 ${rarity} Achievement Unlocked: ${name}!`;
+        popup.style.display='block';
+        setTimeout(()=>popup.style.display='none',3500);
+    }
+
+    // Auth
+    window.register = ()=>{
+        const u=document.getElementById('username').value.trim();
+        const p=document.getElementById('password').value;
+        if(!u||!p) return alert('Enter both fields!');
+        let users=JSON.parse(localStorage.getItem('users')||'{}');
+        if(users[u]) return alert('Username exists!');
+        users[u]=p; localStorage.setItem('users',JSON.stringify(users));
+        alert('Registered!');
+    }
+
+    window.signIn = ()=>{
+        const u=document.getElementById('username').value.trim();
+        const p=document.getElementById('password').value;
+        let users=JSON.parse(localStorage.getItem('users')||'{}');
+        if(users[u]===p){
+            username=u;
+            authScreen.classList.add('hidden');
+            gameScreen.classList.remove('hidden');
+            usernameDisplay.innerText='Player: '+u;
+            loadUserData(); renderUpgrades(); renderAchievements(); updatePoints(); checkAdmin(); checkAchievements();
+        } else alert('Invalid credentials!');
+    }
+
+    window.logout=()=>{ saveUserData(); authScreen.classList.remove('hidden'); gameScreen.classList.add('hidden'); }
+
+    clickBox.addEventListener('click',()=>{
+        points += pointsPerClick;
+        totalPoints += pointsPerClick;
+        updatePoints();
+        checkAchievements();
+        saveUserData();
+    });
+
+    // Upgrades
+    function renderUpgrades() {
+        upgradesDiv.innerHTML='';
+        upgrades.forEach((up,i)=>{
+            const div=document.createElement('div');
+            div.className='upgrade';
+            div.innerHTML=`<span>${up.name} (Owned: ${up.owned}/${up.max})</span>
+                           <span><button onclick="buyUpgrade(${i})">Buy (${up.cost} pts)</button></span>`;
+            upgradesDiv.appendChild(div);
+        });
+        adminSelect.innerHTML=upgrades.map((u,i)=>`<option value="${i}">${u.name}</option>`).join('');
+    }
+
+    window.buyUpgrade=function(index){
+        const up=upgrades[index];
+        const buyCount=parseInt(document.getElementById('buyAmount').value);
+        let totalCost=0, tempCost=up.cost;
+        for(let i=0;i<buyCount;i++){
+            totalCost+=tempCost;
+            tempCost=Math.floor(tempCost*1.5);
+        }
+        if(points<totalCost) return alert('Not enough points!');
+        if(up.owned + buyCount > up.max) return alert('Reached max limit!');
+        points -= totalCost;
+        for(let i=0;i<buyCount;i++){
+            up.owned++;
+            switch(up.type){
+                case 'click': pointsPerClick+=up.effect; break;
+                case 'auto': if(!up.autoInterval) up.autoInterval=setInterval(()=>{ points+=up.effect; totalPoints+=up.effect; updatePoints(); saveUserData(); },1000); break;
+                case 'mult': pointsPerClick*=up.effect; break;
+            }
+            up.cost=Math.floor(up.cost*1.5);
+        }
+        updatePoints(); renderUpgrades(); checkAchievements(); saveUserData();
+    }
+
+    // Admin panel
+    function checkAdmin(){ if(username==='Jmo_fr') adminPanel.classList.remove('hidden'); }
+    window.setPoints=()=>{ const val=parseInt(document.getElementById('adminPointsInput').value); points=val||0; totalPoints=val||0; updatePoints(); saveUserData(); }
+    window.giveUpgrade=()=>{
+        const idx=parseInt(adminSelect.value);
+        const amt=parseInt(document.getElementById('adminUpgradeAmount').value)||1;
+        for(let i=0;i<amt;i++){
+            upgrades[idx].owned++;
+            switch(upgrades[idx].type){
+                case 'click': pointsPerClick+=upgrades[idx].effect; break;
+                case 'auto': if(!upgrades[idx].autoInterval) upgrades[idx].autoInterval=setInterval(()=>{ points+=upgrades[idx].effect; totalPoints+=upgrades[idx].effect; updatePoints(); saveUserData(); },1000); break;
+                case 'mult': pointsPerClick*=upgrades[idx].effect; break;
+            }
+        }
+        renderUpgrades(); updatePoints(); saveUserData();
+    }
+    window.resetPoints=()=>{ points=0; updatePoints(); saveUserData(); }
+    window.resetUpgrades=()=>{ upgrades.forEach(u=>u.owned=0); pointsPerClick=1; renderUpgrades(); updatePoints(); saveUserData(); }
+    window.maxAllUpgrades=()=>{ upgrades.forEach(u=>{ u.owned=u.max; if(u.type==='click') pointsPerClick+=u.effect*u.max; }); renderUpgrades(); updatePoints(); saveUserData(); }
+    window.toggleAutoClick=()=>{ autoClicker=!autoClicker; const btn=document.getElementById('autoClickBtn'); btn.innerText=autoClicker?'ON':'OFF'; if(autoClicker){ autoClickInterval=setInterval(()=>{ points+=pointsPerClick; totalPoints+=pointsPerClick; updatePoints(); saveUserData(); },1000);}else clearInterval(autoClickInterval);}
+    window.setPPC=()=>{ const val=parseInt(document.getElementById('pointsPerClickInput').value); if(!isNaN(val)&&val>=1) pointsPerClick=val; updatePoints(); }
+
+    window.prestige=()=>{ pointsPerClick=1; upgrades.forEach(u=>u.owned=0); renderUpgrades(); updatePoints(); saveUserData(); }
+
+    // Codes
+    window.useCode=()=>{
+        const code=document.getElementById('secretCodeInput').value.trim();
+        const msg=document.getElementById('codeMessage');
+        if(!secretCodes[code]) return msg.innerText='Invalid code!';
+        if(usedCodes[code]) return msg.innerText='Already used!';
+        points += secretCodes[code]; totalPoints += secretCodes[code]; usedCodes[code]=true;
+        msg.innerText=`Code redeemed: +${secretCodes[code]} pts`;
+        updatePoints(); checkAchievements(); saveUserData();
+    }
+
+    setInterval(checkAchievements,2000);
+});
+</script>
+</body>
+</html>
